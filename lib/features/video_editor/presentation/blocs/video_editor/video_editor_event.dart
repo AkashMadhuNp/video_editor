@@ -40,11 +40,12 @@ class AddAudioTrackEvent extends VideoEditorEvent {
   final String name;
   final String path;
   final Duration playheadPosition;
+  final Duration? duration;
 
-  const AddAudioTrackEvent(this.name, this.path, this.playheadPosition);
+  const AddAudioTrackEvent(this.name, this.path, this.playheadPosition, {this.duration});
 
   @override
-  List<Object?> get props => [name, path, playheadPosition];
+  List<Object?> get props => [name, path, playheadPosition, duration];
 }
 
 class SplitItemEvent extends VideoEditorEvent {
@@ -89,22 +90,41 @@ class UpdateItemTimingEvent extends VideoEditorEvent {
 class UpdateTextItemPropertiesEvent extends VideoEditorEvent {
   final String itemId;
   final String? text;
-  final double? x;
-  final double? y;
+  final double? normalizedX;
+  final double? normalizedY;
+  final double? scale;
+  final double? rotation;
+  final double? opacity;
+  final int? zIndex;
   final int? color;
   final double? fontSize;
 
   const UpdateTextItemPropertiesEvent(
     this.itemId, {
     this.text,
-    this.x,
-    this.y,
+    this.normalizedX,
+    this.normalizedY,
+    this.scale,
+    this.rotation,
+    this.opacity,
+    this.zIndex,
     this.color,
     this.fontSize,
   });
 
   @override
-  List<Object?> get props => [itemId, text, x, y, color, fontSize];
+  List<Object?> get props => [
+        itemId,
+        text,
+        normalizedX,
+        normalizedY,
+        scale,
+        rotation,
+        opacity,
+        zIndex,
+        color,
+        fontSize,
+      ];
 }
 
 class UpdateAudioItemPropertiesEvent extends VideoEditorEvent {

@@ -90,9 +90,13 @@ class VideoEditorBloc extends Bloc<VideoEditorEvent, VideoEditorState> {
       properties: {
         'text': event.text,
         'color': 0xFF00FFFF, // Default neon cyan
-        'fontSize': 22.0,
-        'x': 0.3,
-        'y': 0.3,
+        'fontSize': 72.0, // Reference size at 1080p
+        'normalizedX': 0.0,
+        'normalizedY': 0.0,
+        'scale': 1.0,
+        'rotation': 0.0,
+        'opacity': 1.0,
+        'zIndex': 0,
       },
     );
 
@@ -114,13 +118,15 @@ class VideoEditorBloc extends Bloc<VideoEditorEvent, VideoEditorState> {
   void _onAddAudioTrack(AddAudioTrackEvent event, Emitter<VideoEditorState> emit) {
     if (state.project == null) return;
 
+    final clipDuration = event.duration ?? const Duration(seconds: 10);
+
     final audioItem = TimelineItem(
       id: 'audio_clip_${DateTime.now().millisecondsSinceEpoch}',
       name: event.name,
       start: event.playheadPosition,
-      duration: const Duration(seconds: 10), // Default 10s clip
+      duration: clipDuration,
       trimStart: Duration.zero,
-      trimEnd: const Duration(seconds: 10),
+      trimEnd: clipDuration,
       properties: {
         'path': event.path,
         'volume': 0.5,
@@ -341,11 +347,23 @@ class VideoEditorBloc extends Bloc<VideoEditorEvent, VideoEditorState> {
         if (event.text != null) {
           newProps['text'] = event.text;
         }
-        if (event.x != null) {
-          newProps['x'] = event.x;
+        if (event.normalizedX != null) {
+          newProps['normalizedX'] = event.normalizedX;
         }
-        if (event.y != null) {
-          newProps['y'] = event.y;
+        if (event.normalizedY != null) {
+          newProps['normalizedY'] = event.normalizedY;
+        }
+        if (event.scale != null) {
+          newProps['scale'] = event.scale;
+        }
+        if (event.rotation != null) {
+          newProps['rotation'] = event.rotation;
+        }
+        if (event.opacity != null) {
+          newProps['opacity'] = event.opacity;
+        }
+        if (event.zIndex != null) {
+          newProps['zIndex'] = event.zIndex;
         }
         if (event.color != null) {
           newProps['color'] = event.color;

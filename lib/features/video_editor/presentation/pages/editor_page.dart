@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:video_player/video_player.dart';
@@ -557,22 +558,39 @@ class _EditorPageState extends State<EditorPage> {
                                                 ),
                                               ),
                                               
-                                              // Dynamic active text overlays
-                                              ...activeTextItems.map((item) {
+                                              // Dynamic active text overlays sorted by zIndex
+                                              ...(() {
+                                                final list = List<TimelineItem>.from(activeTextItems);
+                                                list.sort((a, b) => (a.properties['zIndex'] as int? ?? 0).compareTo(b.properties['zIndex'] as int? ?? 0));
+                                                return list;
+                                              })().map((item) {
                                                 final textVal = item.properties['text'] as String? ?? '';
                                                 final colorVal = item.properties['color'] as int? ?? 0xFFFFFFFF;
-                                                final sizeVal = (item.properties['fontSize'] as num? ?? 22.0).toDouble();
-                                                final xVal = (item.properties['x'] as num? ?? 0.3).toDouble();
-                                                final yVal = (item.properties['y'] as num? ?? 0.3).toDouble();
+                                                
+                                                // Dynamic scaling and legacy coordinate mapping
+                                                final double rawFontSize = (item.properties['fontSize'] as num? ?? 72.0).toDouble();
+                                                final double fontSize = rawFontSize <= 48.0 ? rawFontSize * 3.0 : rawFontSize;
+                                                
+                                                final double normX = (item.properties['normalizedX'] as num? ?? 
+                                                    (item.properties['x'] != null ? (item.properties['x'] as num).toDouble() * 2.0 - 1.0 : 0.0)).toDouble();
+                                                final double normY = (item.properties['normalizedY'] as num? ?? 
+                                                    (item.properties['y'] != null ? (item.properties['y'] as num).toDouble() * 2.0 - 1.0 : 0.0)).toDouble();
+                                                
+                                                final double scaleVal = (item.properties['scale'] as num? ?? 1.0).toDouble();
+                                                final double rotationVal = (item.properties['rotation'] as num? ?? 0.0).toDouble();
+                                                final double opacityVal = (item.properties['opacity'] as num? ?? 1.0).toDouble();
                                                 final isSelected = state.selectedItemId == item.id;
  
                                                 return TextOverlayWidget(
                                                   key: ValueKey(item.id),
                                                   text: textVal,
                                                   color: Color(colorVal),
-                                                  fontSize: sizeVal,
-                                                  x: xVal,
-                                                  y: yVal,
+                                                  fontSize: fontSize,
+                                                  normalizedX: normX,
+                                                  normalizedY: normY,
+                                                  scale: scaleVal,
+                                                  rotation: rotationVal,
+                                                  opacity: opacityVal,
                                                   parentWidth: constraints.maxWidth,
                                                   parentHeight: constraints.maxHeight,
                                                   isEditable: isSelected,
@@ -585,8 +603,8 @@ class _EditorPageState extends State<EditorPage> {
                                                     context.read<VideoEditorBloc>().add(
                                                       UpdateTextItemPropertiesEvent(
                                                         item.id,
-                                                        x: newX,
-                                                        y: newY,
+                                                        normalizedX: newX,
+                                                        normalizedY: newY,
                                                       ),
                                                     );
                                                   },
@@ -732,10 +750,50 @@ class _EditorPageState extends State<EditorPage> {
                           AddTextOverlayEvent(text, _playheadPosition),
                         );
                   },
-                  onAddAudio: (name, path) {
-                    context.read<VideoEditorBloc>().add(
-                          AddAudioTrackEvent(name, path, _playheadPosition),
+                  onAddAudio: () async {
+                    try {
+                      final result = await FilePicker.pickFiles(
+                        type: FileType.audio,
+                        allowMultiple: false,
+                      );
+
+                      if (result != null && result.files.single.path != null) {
+                        final file = result.files.single;
+                        final name = file.name;
+                        final path = file.path!;
+
+                        final tempController = VideoPlayerController.file(File(path));
+                        Duration duration = const Duration(seconds: 10);
+                        try {
+                          await tempController.initialize();
+                          duration = tempController.value.duration;
+                        } catch (e) {
+                          debugPrint('Failed to get audio duration: $e');
+                        } finally {
+                          await tempController.dispose();
+                        }
+
+                        if (context.mounted) {
+                          context.read<VideoEditorBloc>().add(
+                                AddAudioTrackEvent(
+                                  name,
+                                  path,
+                                  _playheadPosition,
+                                  duration: duration,
+                                ),
+                              );
+                        }
+                      }
+                    } catch (e) {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Failed to pick audio: $e'),
+                            backgroundColor: AppColors.error,
+                          ),
                         );
+                      }
+                    }
                   },
                   currentRatio: project.aspectRatio ?? widget.videos.first.aspectRatio,
                   onRatioChanged: (ratio) {
@@ -1239,7 +1297,9 @@ class _EditorPageState extends State<EditorPage> {
                   item ??= selectedItem;
 
                   final textVal = item.properties['text'] as String? ?? '';
-                  final sizeVal = (item.properties['fontSize'] as num? ?? 22.0).toDouble();
+                  final double rawFontSize = (item.properties['fontSize'] as num? ?? 72.0).toDouble();
+                  final double fontSize = rawFontSize <= 48.0 ? rawFontSize * 3.0 : rawFontSize;
+                  final sizeVal = fontSize / 3.0;
                   final colorVal = item.properties['color'] as int? ?? 0xFFFFFFFF;
 
                   return SafeArea(
@@ -1319,7 +1379,7 @@ class _EditorPageState extends State<EditorPage> {
                                     inactiveColor: Colors.white12,
                                     onChanged: (val) {
                                       context.read<VideoEditorBloc>().add(
-                                            UpdateTextItemPropertiesEvent(itemId, fontSize: val),
+                                            UpdateTextItemPropertiesEvent(itemId, fontSize: val * 3.0),
                                           );
                                     },
                                   ),
@@ -1400,15 +1460,15 @@ class _EditorPageState extends State<EditorPage> {
                             scrollDirection: Axis.horizontal,
                             child: Row(
                               children: [
-                                _buildPositionButton(context, itemId, 'Top Left', 0.1, 0.1),
+                                _buildPositionButton(context, itemId, 'Top Left', -0.5, -0.7),
                                 const SizedBox(width: 8),
-                                _buildPositionButton(context, itemId, 'Top Right', 0.6, 0.1),
+                                _buildPositionButton(context, itemId, 'Top Right', 0.5, -0.7),
                                 const SizedBox(width: 8),
-                                _buildPositionButton(context, itemId, 'Center', 0.35, 0.4),
+                                _buildPositionButton(context, itemId, 'Center', 0.0, 0.0),
                                 const SizedBox(width: 8),
-                                _buildPositionButton(context, itemId, 'Bottom Left', 0.1, 0.7),
+                                _buildPositionButton(context, itemId, 'Bottom Left', -0.5, 0.7),
                                 const SizedBox(width: 8),
-                                _buildPositionButton(context, itemId, 'Bottom Right', 0.6, 0.7),
+                                _buildPositionButton(context, itemId, 'Bottom Right', 0.5, 0.7),
                               ],
                             ),
                           ),
@@ -1425,11 +1485,11 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
-  Widget _buildPositionButton(BuildContext context, String itemId, String label, double x, double y) {
+  Widget _buildPositionButton(BuildContext context, String itemId, String label, double normalizedX, double normalizedY) {
     return GestureDetector(
       onTap: () {
         context.read<VideoEditorBloc>().add(
-              UpdateTextItemPropertiesEvent(itemId, x: x, y: y),
+              UpdateTextItemPropertiesEvent(itemId, normalizedX: normalizedX, normalizedY: normalizedY),
             );
       },
       child: Container(

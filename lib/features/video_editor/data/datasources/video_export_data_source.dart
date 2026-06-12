@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:developer' as developer;
 import 'dart:io';
-import 'package:ffmpeg_kit_flutter_new_min_gpl/ffmpeg_kit.dart';
-import 'package:ffmpeg_kit_flutter_new_min_gpl/ffprobe_kit.dart';
-import 'package:ffmpeg_kit_flutter_new_min_gpl/return_code.dart';
+import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/ffprobe_kit.dart';
+import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'package:flutter/material.dart' show Color;
 import 'package:path_provider/path_provider.dart';
 import '../../domain/repositories/video_repository.dart';
 import '../../domain/entities/timeline_project.dart';
+import '../../presentation/widgets/overlay_renderer/text_overlay_renderer.dart';
 import '../models/timeline_project_model.dart';
 
 abstract class VideoExportDataSource {
@@ -53,9 +55,6 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
         return;
       }
 
-      // 2. Query system font for text overlay
-      final fontPath = _getSystemFontPath();
-
       // Determine target resolution based on selected canvas aspect ratio
       int targetWidth = 1280;
       int targetHeight = 720;
@@ -85,6 +84,47 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
         targetWidth = 1280;
         targetHeight = (1280 / clipRatio).round();
         if (targetHeight % 2 != 0) targetHeight++;
+      }
+
+      // Sort text items by zIndex before rendering
+      final List<TimelineItem> sortedTextItems = List<TimelineItem>.from(textItems)
+        ..sort((a, b) => (a.properties['zIndex'] as int? ?? 0).compareTo(b.properties['zIndex'] as int? ?? 0));
+
+      // Render text overlay PNG files to a temporary folder
+      final List<String> tempPngPaths = [];
+      final List<int> tempPngWidths = [];
+      final List<int> tempPngHeights = [];
+      for (int k = 0; k < sortedTextItems.length; k++) {
+        final item = sortedTextItems[k];
+        final text = item.properties['text'] as String? ?? '';
+        final colorVal = item.properties['color'] as int? ?? 0xFFFFFFFF;
+        final fontSize = (item.properties['fontSize'] as num? ?? 72.0).toDouble();
+        final scale = (item.properties['scale'] as num? ?? 1.0).toDouble();
+        final opacity = (item.properties['opacity'] as num? ?? 1.0).toDouble();
+
+        final tempPngPath = '${tempDir.path}/temp_overlay_${timestamp}_$k.png';
+        tempPngPaths.add(tempPngPath);
+
+        final result = await TextOverlayRenderer.renderTextToPng(
+          text: text,
+          fontSize: fontSize,
+          color: Color(colorVal),
+          maxWidth: targetWidth.toDouble(),
+          maxHeight: targetHeight.toDouble(),
+          outputPath: tempPngPath,
+          scale: scale,
+          opacity: opacity,
+        );
+
+        tempPngWidths.add(result.width);
+        tempPngHeights.add(result.height);
+
+        print("PATH: ${result.file.path}");
+        print("EXISTS: ${result.file.existsSync()}");
+        print("SIZE: ${result.file.lengthSync()} (${result.width}x${result.height})");
+        developer.log("PATH: ${result.file.path}");
+        developer.log("EXISTS: ${result.file.existsSync()}");
+        developer.log("SIZE: ${result.file.lengthSync()} (${result.width}x${result.height})");
       }
 
       // 3. Check which video files have audio streams using FFprobe
@@ -131,6 +171,11 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
         '-f', 'lavfi',
         '-i', 'anullsrc=channel_layout=stereo:sample_rate=44100',
       ]);
+
+      // Add temporary text overlay PNG inputs
+      for (final tempPath in tempPngPaths) {
+        args.addAll(['-i', tempPath]);
+      }
 
       // 5. Build filter_complex string
       final filterComplexParts = <String>[];
@@ -207,27 +252,33 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
         filterComplexParts.add('${lastAudioLabel}asplit=1[a_out]');
       }
 
-      // D. Process text overlays on video
+      // D. Process text overlays on video using center-anchored normalized coordinates
       String currentVideoLabel = lastVideoLabel;
-      if (textItems.isNotEmpty) {
-        for (int k = 0; k < textItems.length; k++) {
-          final item = textItems[k];
-          final text = item.properties['text'] as String? ?? '';
-          final escapedText = _escapeFFmpegText(text);
-          final colorVal = item.properties['color'] as int? ?? 0xFFFFFFFF;
-          final fontSize = (item.properties['fontSize'] as num? ?? 22.0).toDouble();
-          final x = (item.properties['x'] as num? ?? 0.3).toDouble();
-          final y = (item.properties['y'] as num? ?? 0.3).toDouble();
+      if (sortedTextItems.isNotEmpty) {
+        for (int k = 0; k < sortedTextItems.length; k++) {
+          final item = sortedTextItems[k];
+          final normalizedX = (item.properties['normalizedX'] as num? ?? 0.0).toDouble();
+          final normalizedY = (item.properties['normalizedY'] as num? ?? 0.0).toDouble();
           final startSec = item.start.inMilliseconds / 1000.0;
           final endSec = (item.start + item.duration).inMilliseconds / 1000.0;
 
-          final hexColor = _formatColorToHex(colorVal);
-          final fontfilePart = fontPath.isNotEmpty ? ':fontfile=\'$fontPath\'' : '';
-          
-          final textPart = 'drawtext=text=\'$escapedText\'$fontfilePart:fontsize=$fontSize:fontcolor=$hexColor:x=w*$x:y=h*$y:enable=\'between(t,${startSec.toStringAsFixed(3)},${endSec.toStringAsFixed(3)})\'';
-          final outLabel = k == textItems.length - 1 ? '[v_out]' : '[v_text_tmp_$k]';
+          // Convert normalized center coordinates (-1.0 to 1.0) to absolute target pixel center coordinates
+          final double centerX = ((normalizedX + 1.0) / 2.0) * targetWidth;
+          final double centerY = ((normalizedY + 1.0) / 2.0) * targetHeight;
 
-          filterComplexParts.add('$currentVideoLabel$textPart$outLabel');
+          // Get raw PNG dimensions
+          final double pngWidth = tempPngWidths[k].toDouble();
+          final double pngHeight = tempPngHeights[k].toDouble();
+
+          // Calculate top-left corner from center coordinate
+          final int posX = (centerX - (pngWidth / 2.0)).round();
+          final int posY = (centerY - (pngHeight / 2.0)).round();
+          final int inputIdx = silenceIndex + 1 + k;
+
+          final String overlayFilter = 'overlay=x=\'clip($posX,0,main_w-overlay_w)\':y=\'clip($posY,0,main_h-overlay_h)\':enable=\'between(t,${startSec.toStringAsFixed(3)},${endSec.toStringAsFixed(3)})\'';
+          final outLabel = k == sortedTextItems.length - 1 ? '[v_out]' : '[v_text_tmp_$k]';
+
+          filterComplexParts.add('$currentVideoLabel[$inputIdx:v]$overlayFilter$outLabel');
           currentVideoLabel = outLabel;
         }
       } else {
@@ -254,6 +305,18 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
       await FFmpegKit.executeWithArgumentsAsync(
         args,
         (session) async {
+          // Clean up temporary PNG files
+          for (final path in tempPngPaths) {
+            try {
+              final file = File(path);
+              if (await file.exists()) {
+                await file.delete();
+              }
+            } catch (e) {
+              developer.log('Failed to delete temp overlay file: $e');
+            }
+          }
+
           final returnCode = await session.getReturnCode();
           if (ReturnCode.isSuccess(returnCode)) {
             controller.add(ExportProgress(1.0, outputPath: outputFile.path));
@@ -302,27 +365,6 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
     return false;
   }
 
-  String _getSystemFontPath() {
-    if (Platform.isAndroid) {
-      final paths = [
-        '/system/fonts/Roboto-Regular.ttf',
-        '/system/fonts/DroidSans.ttf',
-      ];
-      for (final p in paths) {
-        if (File(p).existsSync()) return p;
-      }
-    } else if (Platform.isIOS) {
-      final paths = [
-        '/System/Library/Fonts/Core/Arial.ttf',
-        '/System/Library/Fonts/Core/Helvetica.ttf',
-        '/System/Library/Fonts/Helvetica.ttf',
-      ];
-      for (final p in paths) {
-        if (File(p).existsSync()) return p;
-      }
-    }
-    return '';
-  }
 
   String _getFFmpegEffectFilter(String filterId) {
     switch (filterId) {
@@ -344,17 +386,6 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
     }
   }
 
-  String _formatColorToHex(int color) {
-    final a = (color >> 24) & 0xFF;
-    final r = (color >> 16) & 0xFF;
-    final g = (color >> 8) & 0xFF;
-    final b = color & 0xFF;
-    final rHex = r.toRadixString(16).padLeft(2, '0');
-    final gHex = g.toRadixString(16).padLeft(2, '0');
-    final bHex = b.toRadixString(16).padLeft(2, '0');
-    final aHex = a.toRadixString(16).padLeft(2, '0');
-    return '0x$rHex$gHex$bHex$aHex';
-  }
 
   String _getFFmpegAudioSpeedFilter(double speed) {
     if (speed == 1.0) return '';
@@ -377,12 +408,4 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
     return filters.join(',');
   }
 
-  String _escapeFFmpegText(String text) {
-    return text
-        .replaceAll(r'\', r'\\')
-        .replaceAll(r"'", r"\'")
-        .replaceAll(r':', r'\:')
-        .replaceAll(r',', r'\,')
-        .replaceAll(r'%', r'%%');
-  }
 }

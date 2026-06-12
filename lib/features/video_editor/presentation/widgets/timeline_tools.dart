@@ -13,7 +13,7 @@ class TimelineTools extends StatelessWidget {
   final VoidCallback? onDuplicate;
   final VoidCallback? onDelete;
   final Function(String text) onAddText;
-  final Function(String name, String path) onAddAudio;
+  final VoidCallback? onAddAudio;
   final double? currentRatio;
   final ValueChanged<double?> onRatioChanged;
 
@@ -86,40 +86,6 @@ class TimelineTools extends StatelessWidget {
     );
   }
 
-  void _showAddAudioDialog(BuildContext context) {
-    final List<Map<String, String>> tracks = [
-      {'name': 'Instrumental Beats', 'path': '/assets/audio/beats.mp3'},
-      {'name': 'Cinematic Ambient', 'path': '/assets/audio/ambient.mp3'},
-      {'name': 'Upbeat Synth', 'path': '/assets/audio/synth.mp3'},
-    ];
-
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Choose Audio Track', style: TextStyle(color: Colors.white, fontSize: 16, fontWeight: FontWeight.bold)),
-        backgroundColor: AppColors.surface,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        content: SizedBox(
-          width: double.maxFinite,
-          child: ListView.builder(
-            shrinkWrap: true,
-            itemCount: tracks.length,
-            itemBuilder: (context, index) {
-              final track = tracks[index];
-              return ListTile(
-                leading: const Icon(Icons.music_note_rounded, color: AppColors.secondary),
-                title: Text(track['name']!, style: const TextStyle(color: Colors.white, fontSize: 14)),
-                onTap: () {
-                  onAddAudio(track['name']!, track['path']!);
-                  Navigator.of(context).pop();
-                },
-              );
-            },
-          ),
-        ),
-      ),
-    );
-  }
 
   void _showCanvasBottomSheet(BuildContext context) {
     showModalBottomSheet(
@@ -172,7 +138,7 @@ class TimelineTools extends StatelessWidget {
         _buildToolButton(
           icon: Icons.music_note_rounded,
           label: 'Audio',
-          onPressed: () => _showAddAudioDialog(context),
+          onPressed: onAddAudio,
         ),
         _buildToolButton(
           icon: Icons.aspect_ratio_rounded,
@@ -229,7 +195,7 @@ class TimelineTools extends StatelessWidget {
             _buildToolButton(
               icon: Icons.music_note_rounded,
               label: 'Add Audio',
-              onPressed: () => _showAddAudioDialog(context),
+              onPressed: onAddAudio,
             ),
             _buildToolButton(
               icon: Icons.aspect_ratio_rounded,
@@ -270,7 +236,7 @@ class TimelineTools extends StatelessWidget {
             _buildToolButton(
               icon: Icons.music_note_rounded,
               label: 'Add Audio',
-              onPressed: () => _showAddAudioDialog(context),
+              onPressed: onAddAudio,
             ),
             _buildToolButton(
               icon: Icons.aspect_ratio_rounded,
@@ -311,7 +277,7 @@ class TimelineTools extends StatelessWidget {
             _buildToolButton(
               icon: Icons.music_note_rounded,
               label: 'Add Audio',
-              onPressed: () => _showAddAudioDialog(context),
+              onPressed: onAddAudio,
             ),
             _buildToolButton(
               icon: Icons.aspect_ratio_rounded,
