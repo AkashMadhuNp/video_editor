@@ -20,6 +20,29 @@ class TimelineWidget extends StatefulWidget {
     required this.onTrimItem,
   });
 
+  static double calculateHeight(TimelineProject project) {
+    double totalHeight = 30.0; // Ruler height
+    
+    final hasText = project.tracks.any((t) => t.type == TrackType.text);
+    final hasVideo = project.tracks.any((t) => t.type == TrackType.video);
+    final hasAudio = project.tracks.any((t) => t.type == TrackType.audio);
+
+    if (hasText) {
+      totalHeight += 36.0;
+    }
+    if (hasVideo) {
+      totalHeight += 48.0;
+      if (hasText) totalHeight += 6.0; // Spacer
+    }
+    if (hasAudio) {
+      totalHeight += 36.0;
+      if (hasVideo || hasText) totalHeight += 6.0; // Spacer
+    }
+    
+    totalHeight += 12.0; // Bottom spacing padding
+    return totalHeight;
+  }
+
   @override
   State<TimelineWidget> createState() => _TimelineWidgetState();
 }

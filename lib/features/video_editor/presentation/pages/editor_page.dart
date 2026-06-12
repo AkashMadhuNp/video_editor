@@ -676,7 +676,7 @@ class _EditorPageState extends State<EditorPage> {
 
                 // 2. Multi-Track Timeline Board
                 SizedBox(
-                  height: 160,
+                  height: TimelineWidget.calculateHeight(project),
                   child: TimelineWidget(
                     project: project,
                     playheadPosition: _playheadPosition,
