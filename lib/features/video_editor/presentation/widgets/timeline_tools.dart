@@ -22,6 +22,7 @@ class TimelineTools extends StatelessWidget {
   final VoidCallback? onOpenSpeed;
   final VoidCallback? onOpenVolume;
   final VoidCallback? onOpenTextSettings;
+  final VoidCallback? onAddVideo;
 
   const TimelineTools({
     super.key,
@@ -39,6 +40,7 @@ class TimelineTools extends StatelessWidget {
     this.onOpenSpeed,
     this.onOpenVolume,
     this.onOpenTextSettings,
+    this.onAddVideo,
   });
 
   void _showAddTextDialog(BuildContext context) {
@@ -158,6 +160,11 @@ class TimelineTools extends StatelessWidget {
       // 1. GLOBAL TOOLS (No selection)
       toolsList = [
         _buildToolButton(
+          icon: Icons.add_to_photos_rounded,
+          label: 'Add Video',
+          onPressed: onAddVideo,
+        ),
+        _buildToolButton(
           icon: Icons.text_fields_rounded,
           label: 'Text',
           onPressed: () => _showAddTextDialog(context),
@@ -208,6 +215,11 @@ class TimelineTools extends StatelessWidget {
               label: 'Delete',
               onPressed: onDelete,
               color: AppColors.error,
+            ),
+            _buildToolButton(
+              icon: Icons.add_to_photos_rounded,
+              label: 'Add Video',
+              onPressed: onAddVideo,
             ),
             _buildToolButton(
               icon: Icons.text_fields_rounded,

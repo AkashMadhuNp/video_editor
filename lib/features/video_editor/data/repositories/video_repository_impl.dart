@@ -16,10 +16,10 @@ class VideoRepositoryImpl implements VideoRepository {
   });
 
   @override
-  Future<Either<Failure, VideoFile>> pickVideo() async {
+  Future<Either<Failure, List<VideoFile>>> pickVideos() async {
     try {
-      final video = await localDataSource.pickVideo();
-      return Right(video);
+      final videos = await localDataSource.pickVideos();
+      return Right(videos);
     } catch (e) {
       return Left(PickVideoFailure(e.toString()));
     }

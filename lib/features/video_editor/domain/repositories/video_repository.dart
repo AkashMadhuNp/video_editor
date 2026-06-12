@@ -10,6 +10,6 @@ class ExportProgress {
 }
 
 abstract class VideoRepository {
-  Future<Either<Failure, VideoFile>> pickVideo();
+  Future<Either<Failure, List<VideoFile>>> pickVideos();
   Stream<Either<Failure, ExportProgress>> exportVideo(TimelineProject project);
 }

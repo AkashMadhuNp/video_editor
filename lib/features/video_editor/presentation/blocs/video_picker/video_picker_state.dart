@@ -13,12 +13,12 @@ class VideoPickerInitial extends VideoPickerState {}
 class VideoPickerLoading extends VideoPickerState {}
 
 class VideoPickerLoaded extends VideoPickerState {
-  final VideoFile video;
+  final List<VideoFile> videos;
 
-  const VideoPickerLoaded(this.video);
+  const VideoPickerLoaded(this.videos);
 
   @override
-  List<Object?> get props => [video];
+  List<Object?> get props => [videos];
 }
 
 class VideoPickerError extends VideoPickerState {

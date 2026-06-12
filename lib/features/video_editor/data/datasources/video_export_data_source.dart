@@ -32,15 +32,15 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
       // 1. Separate tracks
       final videoTrack = project.tracks.firstWhere(
         (t) => t.type == TrackType.video,
-        orElse: () => const TimelineTrack(id: 'temp_v', type: TrackType.video, items: []),
+        orElse: () => const TimelineTrackModel(id: 'temp_v', type: TrackType.video, items: []),
       );
       final audioTrack = project.tracks.firstWhere(
         (t) => t.type == TrackType.audio,
-        orElse: () => const TimelineTrack(id: 'temp_a', type: TrackType.audio, items: []),
+        orElse: () => const TimelineTrackModel(id: 'temp_a', type: TrackType.audio, items: []),
       );
       final textTrack = project.tracks.firstWhere(
         (t) => t.type == TrackType.text,
-        orElse: () => const TimelineTrack(id: 'temp_t', type: TrackType.text, items: []),
+        orElse: () => const TimelineTrackModel(id: 'temp_t', type: TrackType.text, items: []),
       );
 
       final videoItems = videoTrack.items;
@@ -353,7 +353,7 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
     final gHex = g.toRadixString(16).padLeft(2, '0');
     final bHex = b.toRadixString(16).padLeft(2, '0');
     final aHex = a.toRadixString(16).padLeft(2, '0');
-    return '#$rHex$gHex$bHex$aHex';
+    return '0x$rHex$gHex$bHex$aHex';
   }
 
   String _getFFmpegAudioSpeedFilter(double speed) {
@@ -381,6 +381,8 @@ class VideoExportDataSourceImpl implements VideoExportDataSource {
     return text
         .replaceAll(r'\', r'\\')
         .replaceAll(r"'", r"\'")
-        .replaceAll(r':', r'\:');
+        .replaceAll(r':', r'\:')
+        .replaceAll(r',', r'\,')
+        .replaceAll(r'%', r'%%');
   }
 }

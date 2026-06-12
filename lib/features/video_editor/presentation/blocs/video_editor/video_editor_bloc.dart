@@ -22,26 +22,36 @@ class VideoEditorBloc extends Bloc<VideoEditorEvent, VideoEditorState> {
     on<UpdateVideoItemPropertiesEvent>(_onUpdateVideoItemProperties);
     on<UpdateProjectAspectRatioEvent>(_onUpdateProjectAspectRatio);
     on<StartExportEvent>(_onStartExport);
+    on<AddVideoClipsEvent>(_onAddVideoClips);
   }
 
   void _onInitEditor(InitEditorEvent event, Emitter<VideoEditorState> emit) {
-    final videoItem = TimelineItem(
-      id: 'video_clip_${DateTime.now().millisecondsSinceEpoch}',
-      name: event.video.name,
-      start: Duration.zero,
-      duration: event.video.duration,
-      trimStart: Duration.zero,
-      trimEnd: event.video.duration,
-      properties: {
-        'path': event.video.path,
-        'aspectRatio': event.video.aspectRatio,
-        'volume': 1.0,
-        'speed': 1.0,
-      },
-    );
+    final List<TimelineItem> videoItems = [];
+    Duration currentStart = Duration.zero;
+
+    for (int i = 0; i < event.videos.length; i++) {
+      final video = event.videos[i];
+      videoItems.add(
+        TimelineItem(
+          id: 'video_clip_${i}_${DateTime.now().millisecondsSinceEpoch}',
+          name: video.name,
+          start: currentStart,
+          duration: video.duration,
+          trimStart: Duration.zero,
+          trimEnd: video.duration,
+          properties: {
+            'path': video.path,
+            'aspectRatio': video.aspectRatio,
+            'volume': 1.0,
+            'speed': 1.0,
+          },
+        ),
+      );
+      currentStart += video.duration;
+    }
 
     final tracks = [
-      TimelineTrack(id: 'track_video', type: TrackType.video, items: [videoItem]),
+      TimelineTrack(id: 'track_video', type: TrackType.video, items: videoItems),
       const TimelineTrack(id: 'track_audio', type: TrackType.audio, items: []),
       const TimelineTrack(id: 'track_text', type: TrackType.text, items: []),
     ];
@@ -49,12 +59,12 @@ class VideoEditorBloc extends Bloc<VideoEditorEvent, VideoEditorState> {
     final project = TimelineProject(
       id: 'project_${DateTime.now().millisecondsSinceEpoch}',
       name: 'NLE Project',
-      duration: event.video.duration,
+      duration: currentStart,
       tracks: tracks,
     );
 
     emit(VideoEditorState(
-      video: event.video,
+      video: event.videos.first,
       project: project,
       exportStatus: ExportStateStatus.initial,
       exportProgress: 0.0,
@@ -257,6 +267,22 @@ class VideoEditorBloc extends Bloc<VideoEditorEvent, VideoEditorState> {
     final project = state.project!;
     final updatedTracks = project.tracks.map((track) {
       final newItems = track.items.where((item) => item.id != event.itemId).toList();
+      
+      // Perform Ripple Shift if this is the primary video track to close any gaps
+      if (track.type == TrackType.video) {
+        newItems.sort((a, b) => a.start.compareTo(b.start));
+        for (int i = 0; i < newItems.length; i++) {
+          if (i == 0) {
+            newItems[i] = newItems[i].copyWith(start: Duration.zero);
+          } else {
+            final prev = newItems[i - 1];
+            newItems[i] = newItems[i].copyWith(
+              start: prev.start + prev.duration,
+            );
+          }
+        }
+      }
+      
       return track.copyWith(items: newItems);
     }).toList();
 
@@ -492,5 +518,58 @@ class VideoEditorBloc extends Bloc<VideoEditorEvent, VideoEditorState> {
       }
     }
     return maxDuration;
+  }
+
+  void _onAddVideoClips(AddVideoClipsEvent event, Emitter<VideoEditorState> emit) {
+    if (state.project == null) return;
+
+    final project = state.project!;
+    final videoTrackIndex = project.tracks.indexWhere((t) => t.type == TrackType.video);
+    if (videoTrackIndex == -1) return;
+
+    final videoTrack = project.tracks[videoTrackIndex];
+    final currentItems = List<TimelineItem>.from(videoTrack.items);
+
+    // Calculate current end duration of the video track
+    Duration currentStart = Duration.zero;
+    if (currentItems.isNotEmpty) {
+      for (final item in currentItems) {
+        final end = item.start + item.duration;
+        if (end > currentStart) {
+          currentStart = end;
+        }
+      }
+    }
+
+    // Append new video files
+    for (int i = 0; i < event.videos.length; i++) {
+      final video = event.videos[i];
+      currentItems.add(
+        TimelineItem(
+          id: 'video_clip_append_${i}_${DateTime.now().millisecondsSinceEpoch}',
+          name: video.name,
+          start: currentStart,
+          duration: video.duration,
+          trimStart: Duration.zero,
+          trimEnd: video.duration,
+          properties: {
+            'path': video.path,
+            'aspectRatio': video.aspectRatio,
+            'volume': 1.0,
+            'speed': 1.0,
+          },
+        ),
+      );
+      currentStart += video.duration;
+    }
+
+    final updatedTracks = List<TimelineTrack>.from(project.tracks);
+    updatedTracks[videoTrackIndex] = videoTrack.copyWith(items: currentItems);
+
+    final newDuration = _calculateProjectDuration(updatedTracks);
+
+    emit(state.copyWith(
+      project: project.copyWith(tracks: updatedTracks, duration: newDuration),
+    ));
   }
 }

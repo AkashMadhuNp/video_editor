@@ -34,8 +34,8 @@ class HomeView extends StatelessWidget {
             Navigator.of(context).push(
               MaterialPageRoute(
                 builder: (context) => BlocProvider(
-                  create: (context) => sl<VideoEditorBloc>()..add(InitEditorEvent(state.video)),
-                  child: EditorPage(video: state.video),
+                  create: (context) => sl<VideoEditorBloc>()..add(InitEditorEvent(state.videos)),
+                  child: EditorPage(videos: state.videos),
                 ),
               ),
             ).then((_) {

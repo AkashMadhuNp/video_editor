@@ -9,12 +9,12 @@ abstract class VideoEditorEvent extends Equatable {
 }
 
 class InitEditorEvent extends VideoEditorEvent {
-  final VideoFile video;
+  final List<VideoFile> videos;
 
-  const InitEditorEvent(this.video);
+  const InitEditorEvent(this.videos);
 
   @override
-  List<Object?> get props => [video];
+  List<Object?> get props => [videos];
 }
 
 class SelectItemEvent extends VideoEditorEvent {
@@ -142,4 +142,13 @@ class UpdateProjectAspectRatioEvent extends VideoEditorEvent {
 
   @override
   List<Object?> get props => [aspectRatio];
+}
+
+class AddVideoClipsEvent extends VideoEditorEvent {
+  final List<VideoFile> videos;
+
+  const AddVideoClipsEvent(this.videos);
+
+  @override
+  List<Object?> get props => [videos];
 }

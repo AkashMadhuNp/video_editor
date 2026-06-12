@@ -20,7 +20,7 @@ class VideoPickerBloc extends Bloc<VideoPickerEvent, VideoPickerState> {
     final result = await pickVideoUseCase(NoParams());
     result.fold(
       (failure) => emit(VideoPickerError(failure.message)),
-      (video) => emit(VideoPickerLoaded(video)),
+      (videos) => emit(VideoPickerLoaded(videos)),
     );
   }
 

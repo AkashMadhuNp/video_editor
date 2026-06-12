@@ -4,8 +4,11 @@ import 'package:flutter_bloc/flutter_bloc.dart';
 import 'package:video_player/video_player.dart';
 import '../../domain/entities/timeline_project.dart';
 import '../../domain/entities/video_file.dart';
+import '../../domain/usecases/pick_video.dart';
 import '../../../../core/theme/app_colors.dart';
 import '../../../../core/utils/app_filters.dart';
+import '../../../../core/usecases/usecase.dart';
+import '../../../../injection_container.dart';
 import '../blocs/video_editor/video_editor_bloc.dart';
 import '../blocs/video_editor/video_editor_event.dart';
 import '../blocs/video_editor/video_editor_state.dart';
@@ -18,8 +21,8 @@ import '../widgets/timeline_widget.dart';
 import 'export_page.dart';
 
 class EditorPage extends StatefulWidget {
-  final VideoFile video;
-  const EditorPage({super.key, required this.video});
+  final List<VideoFile> videos;
+  const EditorPage({super.key, required this.videos});
 
   @override
   State<EditorPage> createState() => _EditorPageState();
@@ -34,14 +37,15 @@ class _EditorPageState extends State<EditorPage> {
   // Synchronization engine variables
   String? _currentVideoPath;
   bool _isSeeking = false;
+  bool _isTimelinePlaying = false;
   final Map<String, VideoPlayerController> _audioControllers = {};
   TimelineProject? _lastAppliedProject;
 
   @override
   void initState() {
     super.initState();
-    _currentVideoPath = widget.video.path;
-    _initializePlayer(widget.video.path);
+    _currentVideoPath = widget.videos.first.path;
+    _initializePlayer(widget.videos.first.path);
   }
 
   void _initializePlayer(String path) {
@@ -124,6 +128,8 @@ class _EditorPageState extends State<EditorPage> {
     if (_isSeeking) return;
     _isSeeking = true;
 
+    final shouldPlay = startPlaying || _isTimelinePlaying;
+
     try {
       final state = context.read<VideoEditorBloc>().state;
       final project = state.project;
@@ -142,33 +148,40 @@ class _EditorPageState extends State<EditorPage> {
         // Check if we need to switch video source
         if (path != _currentVideoPath) {
           _controller.removeListener(_videoListener);
-          await _controller.dispose();
+          final oldController = _controller;
           
           final newController = VideoPlayerController.file(File(path));
           await newController.initialize();
           newController.setLooping(false);
           newController.addListener(_videoListener);
           
+          // Configure the new controller offline before attaching it to the UI
+          await newController.seekTo(targetMediaPos);
+          await newController.setPlaybackSpeed(speed);
+          await newController.setVolume(volume);
+          if (shouldPlay) {
+            await newController.play();
+          }
+
           _controller = newController;
           _currentVideoPath = path;
 
-          setState(() {
-            _isPlayerInitialized = true;
-          });
-        }
+          setState(() {});
+          await oldController.dispose();
+        } else {
+          // Seek video player if difference is substantial to avoid seek stuttering
+          final currentPos = _controller.value.position;
+          final diff = (currentPos - targetMediaPos).inMilliseconds.abs();
+          if (diff > 150 || startPlaying) {
+            await _controller.seekTo(targetMediaPos);
+          }
 
-        // Seek video player if difference is substantial to avoid seek stuttering
-        final currentPos = _controller.value.position;
-        final diff = (currentPos - targetMediaPos).inMilliseconds.abs();
-        if (diff > 150 || startPlaying) {
-          await _controller.seekTo(targetMediaPos);
-        }
+          await _controller.setPlaybackSpeed(speed);
+          await _controller.setVolume(volume);
 
-        await _controller.setPlaybackSpeed(speed);
-        await _controller.setVolume(volume);
-
-        if (startPlaying && !_controller.value.isPlaying) {
-          await _controller.play();
+          if (shouldPlay && !_controller.value.isPlaying) {
+            await _controller.play();
+          }
         }
       } else {
         // No video clip active, pause video player
@@ -205,14 +218,14 @@ class _EditorPageState extends State<EditorPage> {
           await audioCtrl.setVolume(volume);
           
           final diff = (audioCtrl.value.position - targetAudioPos).inMilliseconds.abs();
-          if (diff > 150 || startPlaying) {
+          if (diff > 150 || shouldPlay) {
             await audioCtrl.seekTo(targetAudioPos);
           }
 
           // Match play/pause state
-          if (_controller.value.isPlaying && !audioCtrl.value.isPlaying) {
+          if (shouldPlay && !audioCtrl.value.isPlaying) {
             await audioCtrl.play();
-          } else if (!_controller.value.isPlaying && audioCtrl.value.isPlaying) {
+          } else if (!shouldPlay && audioCtrl.value.isPlaying) {
             await audioCtrl.pause();
           }
         }
@@ -235,6 +248,7 @@ class _EditorPageState extends State<EditorPage> {
   }
 
   Future<void> _resetToStart() async {
+    _isTimelinePlaying = false;
     if (_controller.value.isPlaying) {
       await _controller.pause();
     }
@@ -273,8 +287,24 @@ class _EditorPageState extends State<EditorPage> {
     final currentMediaPos = _controller.value.position;
     final speed = (activeVideo.properties['speed'] as num? ?? 1.0).toDouble();
 
-    // Check if current clip has finished playing in its media trim range
-    if (currentMediaPos >= activeVideo.trimEnd) {
+    // Calculate remaining duration in the clip
+    final remainingMedia = activeVideo.trimEnd - currentMediaPos;
+
+    // We consider the clip finished if:
+    // 1. The playhead has naturally passed or reached trimEnd.
+    // 2. The playhead is within a small threshold (150ms) of trimEnd.
+    // 3. The controller is no longer playing (it reached the end of the source file),
+    //    but the timeline is supposed to be playing, and we have played past the start,
+    //    and we are near the end (within 300ms of trimEnd or 150ms of the absolute duration).
+    final bool isFinished = currentMediaPos >= activeVideo.trimEnd ||
+        remainingMedia.inMilliseconds.abs() < 150 ||
+        (!_controller.value.isPlaying &&
+            _isTimelinePlaying &&
+            currentMediaPos > activeVideo.trimStart &&
+            (remainingMedia.inMilliseconds < 300 ||
+                _controller.value.position >= _controller.value.duration - const Duration(milliseconds: 150)));
+
+    if (isFinished) {
       final nextPlayhead = activeVideo.start + activeVideo.duration;
       if (nextPlayhead >= project.duration) {
         _resetToStart();
@@ -282,7 +312,7 @@ class _EditorPageState extends State<EditorPage> {
         setState(() {
           _playheadPosition = nextPlayhead;
         });
-        _seekPlayersToPlayhead(nextPlayhead, startPlaying: _controller.value.isPlaying);
+        _seekPlayersToPlayhead(nextPlayhead, startPlaying: _isTimelinePlaying);
       }
       return;
     }
@@ -298,7 +328,10 @@ class _EditorPageState extends State<EditorPage> {
         (t) => t.type == TrackType.audio,
         orElse: () => const TimelineTrack(id: '', type: TrackType.audio, items: []),
       );
-      final audioItem = audioTrack.items.firstWhere((item) => item.id == entry.key);
+      final matchingItems = audioTrack.items.where((item) => item.id == entry.key);
+      if (matchingItems.isEmpty) continue;
+      
+      final audioItem = matchingItems.first;
       final isWithinClip = computedPlayhead >= audioItem.start && computedPlayhead < (audioItem.start + audioItem.duration);
 
       if (isWithinClip) {
@@ -443,7 +476,7 @@ class _EditorPageState extends State<EditorPage> {
               }
             }
             
-            final double displayRatio = project.aspectRatio ?? widget.video.aspectRatio;
+            final double displayRatio = project.aspectRatio ?? widget.videos.first.aspectRatio;
             final filterId = videoItem?.properties['filter'] as String? ?? 'original';
 
             // Active text overlays on timeline
@@ -566,17 +599,19 @@ class _EditorPageState extends State<EditorPage> {
                                                 right: 0,
                                                 bottom: 0,
                                                 child: PlayerControls(
-                                                  isPlaying: _controller.value.isPlaying,
+                                                  isPlaying: _isTimelinePlaying,
                                                   position: _playheadPosition,
                                                   duration: project.duration,
                                                   onPlayToggle: () async {
                                                     if (!_isPlayerInitialized) return;
-                                                    if (_controller.value.isPlaying) {
+                                                    if (_isTimelinePlaying) {
+                                                      _isTimelinePlaying = false;
                                                       await _controller.pause();
                                                       for (final ctrl in _audioControllers.values) {
                                                         await ctrl.pause();
                                                       }
                                                     } else {
+                                                      _isTimelinePlaying = true;
                                                       if (_playheadPosition >= project.duration) {
                                                         await _seekPlayersToPlayhead(Duration.zero, startPlaying: true);
                                                       } else {
@@ -652,6 +687,25 @@ class _EditorPageState extends State<EditorPage> {
                   selectedItemId: state.selectedItemId,
                   selectedItemType: selectedItemType,
                   playheadPosition: _playheadPosition,
+                  onAddVideo: () async {
+                    final picker = sl<PickVideo>();
+                    final result = await picker(NoParams());
+                    result.fold(
+                      (failure) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(failure.message),
+                            backgroundColor: AppColors.error,
+                          ),
+                        );
+                      },
+                      (videos) {
+                        context.read<VideoEditorBloc>().add(
+                              AddVideoClipsEvent(videos),
+                            );
+                      },
+                    );
+                  },
                   onSplit: state.selectedItemId != null && (selectedItemType == TrackType.video || selectedItemType == TrackType.audio)
                       ? () {
                           context.read<VideoEditorBloc>().add(
@@ -683,7 +737,7 @@ class _EditorPageState extends State<EditorPage> {
                           AddAudioTrackEvent(name, path, _playheadPosition),
                         );
                   },
-                  currentRatio: project.aspectRatio ?? widget.video.aspectRatio,
+                  currentRatio: project.aspectRatio ?? widget.videos.first.aspectRatio,
                   onRatioChanged: (ratio) {
                     context.read<VideoEditorBloc>().add(
                           UpdateProjectAspectRatioEvent(ratio),
